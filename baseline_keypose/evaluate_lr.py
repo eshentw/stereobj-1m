@@ -6,12 +6,17 @@ import cv2
 from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+
+from tensorflow.python.client import device_lib
+print(device_lib.list_local_devices())
 import json
 import importlib
 import os
 import sys
 import h5py
+import tqdm
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,8 +29,7 @@ sys.path.append(os.path.join(ROOT_DIR, '..', 'data_loader'))
 import make_data_loader
 from dict_restore import DictRestore
 from saver_restore import SaverRestore
-import triangulation_object
-
+# import triangulation_object
 
 
 parser = argparse.ArgumentParser()
@@ -42,7 +46,6 @@ parser.add_argument('--data', default='', help='Data path [default: ]')
 parser.add_argument('--cls_type', default='', help='Object class of interest [default: ]')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch Size during training [default: 16]')
 parser.add_argument('--debug', type=int, default=0, help='Debug mode [default: 0]')
-parser.add_argument('--command_file', default=None, help='Command file name [default: None]')
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
@@ -92,6 +95,7 @@ def train():
         merged = tf.summary.merge_all()
 
         # Init variables
+        tf.debugging.set_log_device_placement(True)
         init = tf.global_variables_initializer()
         sess.run(init)
 
@@ -161,14 +165,15 @@ def eval_one_epoch(sess, ops):
     if not os.path.exists(save_dir):
         os.system('mkdir -p {}'.format(save_dir))
 
-    for idx, batch in enumerate(test_data_loader):
+    for idx, batch in enumerate(tqdm.tqdm(test_data_loader)):
         image_l = batch['inp_l'].data.numpy()
         image_r = batch['inp_r'].data.numpy()
         baseline = batch['baseline'].data.numpy()
         kpt_3d = batch['kpt_3d'].data.numpy()
         K = batch['K'].data.numpy()
         img_id = batch['img_id']
-
+        size = batch['size'].data.numpy()
+        size = size[0]
         img_id = [i[0] for i in img_id]
         K = K[0]
         kpt_3d = kpt_3d[0]
@@ -187,30 +192,55 @@ def eval_one_epoch(sess, ops):
         pred_kp_uv_val_l = pred_kp_uv_val_l[:, :16]
         pred_kp_uv_val_r = pred_kp_uv_val_r[:, :16]
 
+
         view = False
         if view:
             mean = np.array([0.485, 0.456, 0.406])
             std = np.array([0.229, 0.224, 0.225])
             image_show_l = image_l[0]
             image_show_r = image_r[0]
+            mask = batch['mask'].data.numpy()
             pred_kp_uv_show_l = pred_kp_uv_val_l[0]
             pred_kp_uv_show_r = pred_kp_uv_val_r[0]
 
             image_show_l = image_show_l * std + mean
             image_show_r = image_show_r * std + mean
+            
+            # Left image with mask
+            plt.figure(figsize=(12, 6))
+            plt.subplot(2, 2, 1)
             plt.imshow(image_show_l)
-            plt.plot(pred_kp_uv_show_l[:, 0], pred_kp_uv_show_l[:, 1], 'ro')
-            plt.figure()
+            plt.title('Left Image')
+            for i in range(len(pred_kp_uv_show_l)):
+                plt.plot(pred_kp_uv_show_l[i, 0], pred_kp_uv_show_l[i, 1], 'ro')
+                plt.text(pred_kp_uv_show_l[i, 0], pred_kp_uv_show_l[i, 1], str(i), fontsize=8)
+            
+            plt.subplot(2, 2, 2)
+            plt.imshow(mask[0], cmap='gray')
+            plt.title('Left Mask')
+            
+            # Right image with mask
+            plt.subplot(2, 2, 3)
             plt.imshow(image_show_r)
-            plt.plot(pred_kp_uv_show_r[:, 0], pred_kp_uv_show_r[:, 1], 'ro')
+            plt.title('Right Image')
+            for i in range(len(pred_kp_uv_show_r)):
+                plt.plot(pred_kp_uv_show_r[i, 0], pred_kp_uv_show_r[i, 1], 'ro')
+                plt.text(pred_kp_uv_show_r[i, 0], pred_kp_uv_show_r[i, 1], str(i), fontsize=8)
+            
+            plt.subplot(2, 2, 4)
+            plt.imshow(mask[0], cmap='gray')
+            plt.title('Right Mask')
+            
+            plt.tight_layout()
             plt.show()
+            exit()
 
         pred_kp_uv_val_l_ = np.copy(pred_kp_uv_val_l[0])
         pred_kp_uv_val_r_ = np.copy(pred_kp_uv_val_r[0])
 
         save_dict = {'pred_kp_uv_l': pred_kp_uv_val_l_.tolist(), \
                 'pred_kp_uv_r': pred_kp_uv_val_r_.tolist(), 'kpt_3d': kpt_3d.tolist(), \
-                'K': K.tolist(), 'baseline': baseline}
+                'K': K.tolist(), 'baseline': baseline, "size": size.tolist()}
         save_path = os.path.join(save_dir, img_id[0] + '__' + img_id[1] + '.json')
         with open(save_path, 'w') as f:
             json.dump(save_dict, f, indent=4)

@@ -54,7 +54,27 @@ class Dataset(data.Dataset):
             self.kps = f.read().split()
             self.kps = np.array([float(k) for k in self.kps])
             self.kps = np.reshape(self.kps, [-1, 3])
-
+            
+            x_min, x_max = self.kps[:, 0].min(), self.kps[:, 0].max()
+            y_min, y_max = self.kps[:, 1].min(), self.kps[:, 1].max()
+            z_min, z_max = self.kps[:, 2].min(), self.kps[:, 2].max()
+            
+        if self.cls_type in ['centrifuge_tube']:
+            bbox_filename = os.path.join(
+                    self.stereobj_root, 'objects', self.cls_type + '.bbox')
+            with open(bbox_filename, 'r') as f:
+                bbox = f.read().split()
+                bbox = np.array([float(b) for b in bbox])
+                bbox = np.reshape(bbox, (3, 2)).T
+                x_max, x_min = bbox[:, 0]
+                y_max, y_min = bbox[:, 1]
+                z_max, z_min = bbox[:, 2]
+                
+        length = x_max - x_min
+        width = y_max - y_min
+        height = z_max - z_min
+        self.size = np.array([length, width, height], dtype=np.float32)
+    
         split_filename = os.path.join(self.stereobj_root, 'split', self.split + '_' + self.cls_type + '.json')
         with open(split_filename, 'r') as f:
             filename_dict = json.load(f)
@@ -128,7 +148,7 @@ class Dataset(data.Dataset):
 
             path = os.path.join(self.stereobj_data_root, \
                     img_id[0], img_id[1] + '_mask_label.npz')
-            obj_mask = np.load(path)['masks'].item()
+            obj_mask = np.load(path, allow_pickle=True)['masks'].item()
             ##### decode instance mask
             mask = np.zeros([1440, 1440], dtype='bool')
 
@@ -146,9 +166,9 @@ class Dataset(data.Dataset):
             kps_2d_l, kps_2d_r, mask, R, t = [], [], [], [], []
 
         if self.lr:
-            return inp_l, inp_r, kps_2d_l, kps_2d_r, mask, R, t
+            return inp_l, inp_r, kps_2d_l, kps_2d_r, mask, R, t, self.size
         else:
-            return inp_l, kps_2d_l, mask, R, t
+            return inp_l, kps_2d_l, mask, R, t, self.size
 
     def __getitem__(self, index_tuple):
         if self.lr:
@@ -161,20 +181,7 @@ class Dataset(data.Dataset):
         index = index_tuple
         img_id = self.filenames[index]
 
-        inp, kpt_2d, mask, R_gt, t_gt = self.read_data(img_id)
-
-        view = False
-        if view:
-            import matplotlib.pyplot as plt
-            plt.imshow(inp_l / 255.)
-            plt.plot(kpt_2d_l[:, 0], kpt_2d_l[:, 1], 'ro')
-            plt.figure()
-            plt.imshow(inp_r / 255.)
-            plt.plot(kpt_2d_r[:, 0], kpt_2d_r[:, 1], 'ro')
-            plt.figure()
-            plt.imshow(mask)
-            plt.show()
-            exit()
+        inp, kpt_2d, mask, R_gt, t_gt, size = self.read_data(img_id)
 
         if self.split != 'test':
             pose_gt = np.concatenate([R_gt, np.expand_dims(t_gt, -1)], axis=-1)
@@ -190,27 +197,14 @@ class Dataset(data.Dataset):
         ret = {'inp': inp, 'mask': mask, 'prob': prob, \
                'uv': kpt_2d, 'img_id': img_id, 'meta': {}, \
                'kpt_3d': self.kps[:self.num_kp], 'baseline': self.baseline, \
-               'K': self.proj_matrix_l[:, :-1], 'pose_gt': pose_gt}
+               'K': self.proj_matrix_l[:, :-1], 'pose_gt': pose_gt, "size": size}
         return ret
 
     def get_item_lr(self, index_tuple):
         index = index_tuple
         img_id = self.filenames[index]
 
-        inp_l, inp_r, kpt_2d_l, kpt_2d_r, mask, R_gt, t_gt = self.read_data(img_id)
-
-        view = False
-        if view:
-            import matplotlib.pyplot as plt
-            plt.imshow(inp_l / 255.)
-            plt.plot(kpt_2d_l[:, 0], kpt_2d_l[:, 1], 'ro')
-            plt.figure()
-            plt.imshow(inp_r / 255.)
-            plt.plot(kpt_2d_r[:, 0], kpt_2d_r[:, 1], 'ro')
-            plt.figure()
-            plt.imshow(mask)
-            plt.show()
-            exit()
+        inp_l, inp_r, kpt_2d_l, kpt_2d_r, mask, R_gt, t_gt, size = self.read_data(img_id)
 
         if self._transforms is not None:
             inp_l, kpt_2d_l, mask, K = self._transforms(inp_l, kpt_2d_l, mask, self.proj_matrix_l)
@@ -227,7 +221,7 @@ class Dataset(data.Dataset):
         ret = {'inp_l': inp_l, 'inp_r': inp_r, 'mask': mask, 'prob': prob, \
                'uv_l': kpt_2d_l, 'uv_r': kpt_2d_r, 'img_id': img_id, 'meta': {}, \
                'kpt_3d': self.kps[:self.num_kp], 'baseline': self.baseline, \
-               'K': self.proj_matrix_l[:, :-1], 'pose_gt': pose_gt}
+               'K': self.proj_matrix_l[:, :-1], 'pose_gt': pose_gt, "size": size}
         return ret
 
     def __len__(self):

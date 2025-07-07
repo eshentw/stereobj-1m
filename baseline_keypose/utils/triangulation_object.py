@@ -29,7 +29,7 @@ def triangulation_kp_dist_ransac(xy_maxs, obj_kps, proj_mats, tvecs, \
     # proj_mats = proj_mats[:16]
     # tvecs = tvecs[:16]
 
-    num_kp = xy_maxs[0].shape[0]
+    num_kp = xy_maxs.shape[0]
     num_min_sample = 7
     num_not_yet_inlier = 5
     max_iter = 50
@@ -59,7 +59,7 @@ def triangulation_kp_dist_ransac(xy_maxs, obj_kps, proj_mats, tvecs, \
         if maybe_cost > per_pixel_threshold: return maybe_R, maybe_t, maybe_cost
         if maybe_cost < best_cost:
             best_R, best_t, best_cost = maybe_R, maybe_t, maybe_cost
-
+        # print(maybe_inliers_idx, np.arange(num_kp))
         not_yet_inlier_idx = np.delete(np.arange(num_kp), maybe_inliers_idx)
         np.random.shuffle(not_yet_inlier_idx)
         not_yet_inlier_idx = not_yet_inlier_idx[:num_not_yet_inlier]

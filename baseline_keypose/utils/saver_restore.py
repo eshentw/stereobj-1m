@@ -36,7 +36,7 @@ def get_checkpoint_path(model_path, logger):
     if os.path.basename(model_path) == model_path:
         model_path = os.path.join('.', model_path)  # avoid #4921 and #6142
     if os.path.basename(model_path) == 'checkpoint':
-        assert tf.gfile.Exists(model_path), model_path
+        assert tf.io.gfile.exists(model_path), model_path
         model_path = tf.train.latest_checkpoint(os.path.dirname(model_path))
         # to be consistent with either v1 or v2
 
@@ -50,7 +50,7 @@ def get_checkpoint_path(model_path, logger):
         logger(
             "Checkpoint path {} is auto-corrected to {}.".format(model_path, new_path))
         model_path = new_path
-    assert tf.gfile.Exists(model_path) or tf.gfile.Exists(model_path + '.index'), model_path
+    assert tf.io.gfile.exists(model_path) or tf.io.gfile.exists(model_path + '.index'), model_path
     return model_path
 
 def is_training_name(name):
@@ -163,7 +163,7 @@ class SaverRestore(object):
 
     def _setup_graph(self):
         dic = self._get_restore_dict()
-        self.saver = tf.train.Saver(var_list=dic, name=str(id(dic)))
+        self.saver = tf.compat.v1.train.Saver(var_list=dic, name=str(id(dic)))
 
     def run_init(self, sess):
         self.logger("Restoring checkpoint from {} ...".format(self.path))
@@ -173,14 +173,14 @@ class SaverRestore(object):
     @staticmethod
     def _read_checkpoint_vars(model_path):
         """ return a set of strings """
-        reader = tf.train.NewCheckpointReader(model_path)
+        reader = tf.compat.v1.train.NewCheckpointReader(model_path)
         reader = CheckpointReaderAdapter(reader)    # use an adapter to standardize the name
         ckpt_vars = reader.get_variable_to_shape_map().keys()
         return reader, set(ckpt_vars)
 
     def _match_vars(self, func):
         reader, chkpt_vars = SaverRestore._read_checkpoint_vars(self.path)
-        graph_vars = tf.global_variables()
+        graph_vars = tf.compat.v1.global_variables()
         chkpt_vars_used = set()
 
         mismatch = MismatchLogger('graph', 'checkpoint', self.logger)

@@ -2,7 +2,8 @@
 """
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
 def _variable_on_cpu(name, shape, initializer, use_fp16=False, trainable=True):
   """Helper to create a Variable stored on CPU memory.
@@ -38,7 +39,7 @@ def _variable_with_weight_decay(name, shape, stddev, wd, initializer='msra', tra
   if initializer == 'xavier':
     initializer = tf.contrib.layers.xavier_initializer()
   elif initializer == 'msra':
-    initializer = tf.contrib.layers.variance_scaling_initializer()
+    initializer = tf.keras.initializers.VarianceScaling()
   else:
     initializer = tf.truncated_normal_initializer(stddev=stddev)
   var = _variable_on_cpu(name, shape, initializer, trainable=trainable)
@@ -547,11 +548,12 @@ def batch_norm_template(inputs, is_training, scope, moments_dims_unused, bn_deca
   else:
       is_training_ = is_training
       trainable = True
-  return tf.contrib.layers.batch_norm(inputs,
+  return tf.compat.v1.layers.batch_normalization(inputs,
                                       center=True, scale=True,
-                                      is_training=is_training_, decay=bn_decay,updates_collections=None,
-                                      scope=scope,
-                                      data_format=data_format, trainable=trainable)
+                                      training=is_training_, momentum=bn_decay if bn_decay is not None else 0.997,
+                                      epsilon=1e-5,
+                                      fused=True,
+                                      name=scope)
 
 
 def batch_norm_for_fc(inputs, is_training, bn_decay, scope, freeze_bn=False):

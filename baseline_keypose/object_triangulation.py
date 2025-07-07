@@ -7,6 +7,7 @@ import numpy as np
 import json
 import os
 import sys
+import tqdm
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -38,8 +39,9 @@ if __name__ == "__main__":
 
     pred_dir = os.path.join('log_lr_{}_preds'.format(args.split), args.cls_type)
     all_saved_jsons = glob.glob(os.path.join(pred_dir, '*.json'))
-
-    for idx, filename in enumerate(all_saved_jsons):
+    print(pred_dir)
+    print('Found {} json files'.format(len(all_saved_jsons)))
+    for idx, filename in enumerate(tqdm.tqdm(all_saved_jsons)):
         save_filename = os.path.join(result_save_dir, os.path.basename(filename))
         if os.path.exists(save_filename):
             continue
@@ -53,7 +55,14 @@ if __name__ == "__main__":
 
         pred_kp_uv_l = np.array(data['pred_kp_uv_l'])
         pred_kp_uv_r = np.array(data['pred_kp_uv_r'])
-        # pose_gt = np.array(data['pose_gt'])
+        size = data['size']
+        
+        # Left projection matrix: [K | 0]
+        P_left = np.hstack([K, np.zeros((3, 1))])
+
+        # Right projection matrix: [K | -K @ [baseline, 0, 0]^T]
+        T = np.array([[baseline], [0], [0]])  # translation
+        P_right = np.hstack([K, -K @ T])
 
         total_num_points = 2 * args.num_kp
         kps_2ds = np.concatenate([pred_kp_uv_l, pred_kp_uv_r], axis=0)
@@ -63,7 +72,7 @@ if __name__ == "__main__":
 
         tvecs = np.concatenate([np.zeros([args.num_kp, 3]), \
                 np.tile(np.array([[-baseline, 0, 0]]), [args.num_kp, 1])], 0)
-
+        # print(kps_2ds.shape, kpt_3ds.shape, proj_mats.shape, tvecs.shape)
         R, t, cost = triangulation_object.triangulation_kp_dist_ransac(kps_2ds, kpt_3ds, proj_mats, \
                 tvecs, reprojection_error_type='linear', \
                 resolution_scale=args.image_width/1440., return_cost=True)
@@ -72,8 +81,18 @@ if __name__ == "__main__":
         pose_pred = np.concatenate([pred_R, pred_t], axis=-1)
         pose_pred = pose_pred.tolist()
 
+        result_data = {
+            "pred_kpts_l": pred_kp_uv_l.tolist(),
+            "pred_kpts_r": pred_kp_uv_r.tolist(),
+            "kpt_3d": kpt_3d.tolist(),
+            'pose_pred': pose_pred,
+            'P_left': P_left.tolist(),
+            'P_right': P_right.tolist(),
+            "size": size,
+        }
+        
         with open(save_filename, 'w') as f:
-            json.dump(pose_pred, f, indent=4)
+            json.dump(result_data, f, indent=4)
 
 
 
