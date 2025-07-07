@@ -1,40 +1,3 @@
-'''
-    Evaluating merged JSON file that contains predictions for all object classes
-    The example format of the input JSON file is
-    {
-        "split": "test",
-        "pred": {
-            "blade_razor": {
-                "mechanics_scene_1_07272020_13": {
-                    "000000": [
-                        [1., 0., 0., 0.],
-                        [0., 1., 0., 0.],
-                        [0., 0., 1., 0.],
-                    ],
-                    "000001": [
-                        [1., 0., 0., 0.],
-                        [0., 1., 0., 0.],
-                        [0., 0., 1., 0.],
-                    ],
-                    ...
-                },
-                "mechanics_scene_2_08012020_17": {
-                    "000000": [ ...
-                    ],
-                    ...
-                },
-                ...
-            },
-            "hammer": {
-                "mechanics_scene_11_08212020_3": {
-                    ...
-                },
-                ...
-            },
-        },
-    }
-    For more details on the required format for input JSON file, please refer to README.md or https://sites.google.com/view/stereobj-1m/submission
-'''
 import argparse
 import cv2
 import numpy as np
@@ -42,6 +5,7 @@ import json
 import os
 import sys
 import torch
+from collections import Counter
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from baseline_keypose.pose6d_validator import Pose6DValidator
@@ -87,6 +51,7 @@ if __name__ == "__main__":
     ]
 
     class_to_label = {cls: idx for idx, cls in enumerate(classes)}
+    label_to_class = {idx: cls for idx, cls in enumerate(classes)}
 
     pose6d_validator = Pose6DValidator(classes, use_matches_for_pose=True)
     with open(args.input_json, 'r') as f:
@@ -100,6 +65,7 @@ if __name__ == "__main__":
     gt_dict = gt_dict['pred']
 
     result_dict = {}
+    cls_count = Counter()
 
     for cls_type in gt_dict:
         obj_points_fname = os.path.join(args.object_data, cls_type + '.xyz')
@@ -233,27 +199,41 @@ if __name__ == "__main__":
                     
                     img_l = cv2.resize(img_l, (640, 640))
                     img_r = cv2.resize(img_r, (640, 640))
-                    
-                    # Concatenate images horizontally
                     combined_img = np.concatenate([img_l, img_r], axis=1)
-                    
-                    # Display using cv2
                     cv2.imshow('Left and Right Images with Keypoints', combined_img)
                     cv2.waitKey(0)
                     cv2.destroyAllWindows()
 
             pose6d_validator.compute_metrics()
             res = pose6d_validator.get_result()
-            result_dict[cls_type] = res
-            print(f'Results for {cls_type}: {res}')
-
-            output_json_path = os.path.join(args.out_dir, 'evaluation_results.json')
-            with open(output_json_path, 'w') as f:
-                json.dump(result_dict, f, indent=2)
             
-            print(f'Results saved to: {output_json_path}')
+            class_name = label_to_class[target_label_id]
+            if class_name not in result_dict:
+                result_dict[class_name] = res
+            else:
+                # accum the cls counter
+                cls_count[class_name] += 1
+                
+                for key in res:
+                    if key in result_dict[class_name]:
+                        result_dict[class_name][key] += res[key]
+                    else:
+                        result_dict[class_name][key] = res[key]
+
+            print(f'Results for {cls_type}: {res}')
             pose6d_validator.init_metrics()
-                                 
+
+    # average the results
+    for class_name in result_dict:
+        for key in result_dict[class_name]:
+            if class_name in cls_count and cls_count[class_name] > 0:
+                result_dict[class_name][key] /= cls_count[class_name]
+            else:
+                result_dict[class_name][key] = 0.0
+
+    output_json_path = os.path.join(args.out_dir, 'evaluation_results.json')
+    with open(output_json_path, 'w') as f:
+        json.dump(result_dict, f, indent=4)
 
                     
 
