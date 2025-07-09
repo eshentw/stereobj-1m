@@ -28,10 +28,53 @@ parser.add_argument('--input_json', default='', help='Input json filename [defau
 parser.add_argument('--out_dir', default='', help='Output directory [default: ]')
 parser.add_argument('--gt_json', default='', help='GT json filename [default: ]')
 parser.add_argument('--root_dir', default='', help='Root directory for data [default: ]')
+parser.add_argument('--store_image', action='store_true', help='Whether to store the results [default: False]')
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
+def draw_box(box_l, box_r, img_l, img_r, color):
+    if len(box_l) >= 8:
+        box_edges = [
+            (0, 1), (1, 2), (2, 3), (3, 0),  # bottom face
+            (4, 5), (5, 6), (6, 7), (7, 4),  # top face
+            (0, 4), (1, 5), (2, 6), (3, 7)   # vertical edges
+        ]
+        
+        # Draw box points and edges for left image
+        for i in range(len(box_l)):
+            pt_l = (int(box_l[i, 0]), int(box_l[i, 1]))
+            cv2.circle(img_l, pt_l, 4, color, -1)
+            cv2.putText(img_l, f'b{i}', (pt_l[0]+5, pt_l[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+        
+        # Draw edges for left image
+        for edge in box_edges:
+            pt1_l = (int(box_l[edge[0], 0]), int(box_l[edge[0], 1]))
+            pt2_l = (int(box_l[edge[1], 0]), int(box_l[edge[1], 1]))
+            cv2.line(img_l, pt1_l, pt2_l, color, 2)
+        
+        # Draw box points and edges for right image
+        for i in range(len(box_r)):
+            pt_r = (int(box_r[i, 0]), int(box_r[i, 1]))
+            cv2.circle(img_r, pt_r, 4, color, -1)
+            cv2.putText(img_r, f'b{i}', (pt_r[0]+5, pt_r[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+        
+        # Draw edges for right image
+        for edge in box_edges:
+            pt1_r = (int(box_r[edge[0], 0]), int(box_r[edge[0], 1]))
+            pt2_r = (int(box_r[edge[1], 0]), int(box_r[edge[1], 1]))
+            cv2.line(img_r, pt1_r, pt2_r, color, 2)
+    else:
+        # Fallback: just draw points if we don't have enough for a full box
+        for i in range(len(box_l)):
+            pt_l = (int(box_l[i, 0]), int(box_l[i, 1]))
+            cv2.circle(img_l, pt_l, 4, color, -1)
+            cv2.putText(img_l, f'b{i}', (pt_l[0]+5, pt_l[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+        
+        for i in range(len(box_r)):
+            pt_r = (int(box_r[i, 0]), int(box_r[i, 1]))
+            cv2.circle(img_r, pt_r, 4, color, -1)
+            cv2.putText(img_r, f'b{i}', (pt_r[0]+5, pt_r[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
 if __name__ == "__main__":
     classes = [
@@ -82,7 +125,7 @@ if __name__ == "__main__":
             target_label_id = class_to_label.get('pipette', None)
         assert target_label_id is not None, f"Class {cls_type} not found in dataset classes."
         print('Evaluating class: {}'.format(cls_type))
-
+        image_counters = 0
         for seq_id in gt_dict[cls_type]:
             for frame_id in tqdm(gt_dict[cls_type][seq_id], desc=f"Processing {seq_id}"):
                 try:
@@ -125,8 +168,7 @@ if __name__ == "__main__":
                     "pred_scores": scores.numpy() # shape: (topk,)
                 })
                 
-                view = False
-                if view:
+                if args.store_image and image_counters < 10:
                     # load image
                     img_fname = os.path.join(args.root_dir, seq_id, frame_id + '.jpg')
                     img = cv2.imread(img_fname)
@@ -137,14 +179,15 @@ if __name__ == "__main__":
                     PR = pred_dict[cls_type][seq_id][frame_id]["P_right"]
                     PL = torch.tensor(PL, dtype=torch.float32)
                     PR = torch.tensor(PR, dtype=torch.float32)
-
-                    canonical_box = get_canonical_box(pred_size)
+                    canonical_box = get_canonical_box(pred_size[0])
                     R, t = torch.tensor(pred_pose[0][:3, :3]).to(torch.float32), \
                         torch.tensor(pred_pose[0][:3, 3]).to(torch.float32)
                     box = (R @ canonical_box.T).T + t
                     box_l = project_3d_to_2d_batch(box, PL).numpy()
                     box_r = project_3d_to_2d_batch(box, PR).numpy()
-
+                    gt_box = (torch.tensor(pose_gt[0][:3, :3]) @ canonical_box.T).T + torch.tensor(pose_gt[0][:3, 3])
+                    box_gt_l = project_3d_to_2d_batch(gt_box, PL).numpy()
+                    box_gt_r = project_3d_to_2d_batch(gt_box, PR).numpy()
                     # mean = np.array([0.485, 0.456, 0.406])
                     # std = np.array([0.229, 0.224, 0.225])
                     # img_l = img[:, :w//2, :] * std + mean
@@ -155,72 +198,36 @@ if __name__ == "__main__":
                     img_l = img_l.astype(np.uint8).copy()
                     img_r = img_r.astype(np.uint8).copy()
                     
-                    if len(box_l) >= 8:
-                        box_edges = [
-                            (0, 1), (1, 2), (2, 3), (3, 0),  # bottom face
-                            (4, 5), (5, 6), (6, 7), (7, 4),  # top face
-                            (0, 4), (1, 5), (2, 6), (3, 7)   # vertical edges
-                        ]
-                        
-                        # Draw box points and edges for left image
-                        for i in range(len(box_l)):
-                            pt_l = (int(box_l[i, 0]), int(box_l[i, 1]))
-                            cv2.circle(img_l, pt_l, 4, (0, 255, 0), -1)
-                            cv2.putText(img_l, f'b{i}', (pt_l[0]+5, pt_l[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-                        
-                        # Draw edges for left image
-                        for edge in box_edges:
-                            pt1_l = (int(box_l[edge[0], 0]), int(box_l[edge[0], 1]))
-                            pt2_l = (int(box_l[edge[1], 0]), int(box_l[edge[1], 1]))
-                            cv2.line(img_l, pt1_l, pt2_l, (0, 255, 0), 2)
-                        
-                        # Draw box points and edges for right image
-                        for i in range(len(box_r)):
-                            pt_r = (int(box_r[i, 0]), int(box_r[i, 1]))
-                            cv2.circle(img_r, pt_r, 4, (0, 255, 0), -1)
-                            cv2.putText(img_r, f'b{i}', (pt_r[0]+5, pt_r[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-                        
-                        # Draw edges for right image
-                        for edge in box_edges:
-                            pt1_r = (int(box_r[edge[0], 0]), int(box_r[edge[0], 1]))
-                            pt2_r = (int(box_r[edge[1], 0]), int(box_r[edge[1], 1]))
-                            cv2.line(img_r, pt1_r, pt2_r, (0, 255, 0), 2)
-                    else:
-                        # Fallback: just draw points if we don't have enough for a full box
-                        for i in range(len(box_l)):
-                            pt_l = (int(box_l[i, 0]), int(box_l[i, 1]))
-                            cv2.circle(img_l, pt_l, 4, (0, 255, 0), -1)
-                            cv2.putText(img_l, f'b{i}', (pt_l[0]+5, pt_l[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-                        
-                        for i in range(len(box_r)):
-                            pt_r = (int(box_r[i, 0]), int(box_r[i, 1]))
-                            cv2.circle(img_r, pt_r, 4, (0, 255, 0), -1)
-                            cv2.putText(img_r, f'b{i}', (pt_r[0]+5, pt_r[1]+25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+                    draw_box(box_l, box_r, img_l, img_r, color=(0, 255, 0))
+                    draw_box(box_gt_l, box_gt_r, img_l, img_r, color=(0, 0, 255))
                     
                     img_l = cv2.resize(img_l, (640, 640))
                     img_r = cv2.resize(img_r, (640, 640))
                     combined_img = np.concatenate([img_l, img_r], axis=1)
-                    cv2.imshow('Left and Right Images with Keypoints', combined_img)
-                    cv2.waitKey(0)
-                    cv2.destroyAllWindows()
+                    
+                    save_dir = os.path.join(args.out_dir, 'visualizations', cls_type)
+                    os.makedirs(save_dir, exist_ok=True)
+                    save_path = os.path.join(save_dir, f'{seq_id}_{frame_id}_{image_counters:03d}.jpg')
+                    cv2.imwrite(save_path, combined_img)
+                    
+                    image_counters += 1
 
             pose6d_validator.compute_metrics()
-            res = pose6d_validator.get_result()
+            _, class_res = pose6d_validator.get_result()
             
             class_name = label_to_class[target_label_id]
             if class_name not in result_dict:
-                result_dict[class_name] = res
+                result_dict[class_name] = class_res[class_name]
+                cls_count[class_name] = 1
             else:
                 # accum the cls counter
                 cls_count[class_name] += 1
-                
-                for key in res:
+                for key in class_res[class_name]:
                     if key in result_dict[class_name]:
-                        result_dict[class_name][key] += res[key]
+                        result_dict[class_name][key] += class_res[class_name][key]
                     else:
-                        result_dict[class_name][key] = res[key]
+                        result_dict[class_name][key] = class_res[class_name][key]
 
-            print(f'Results for {cls_type}: {res}')
             pose6d_validator.init_metrics()
 
     # average the results
@@ -230,7 +237,16 @@ if __name__ == "__main__":
                 result_dict[class_name][key] /= cls_count[class_name]
             else:
                 result_dict[class_name][key] = 0.0
-
+                
+            result_dict[class_name][key] = round(result_dict[class_name][key], 3)
+    # mean results
+    mean_results = {}
+    for key in result_dict[next(iter(result_dict))]:
+        mean_results[key] = np.mean([result_dict[class_name][key] for class_name in result_dict]).round(3)
+    result_dict['mean'] = mean_results
+    print('Final Results:')
+    for class_name, metrics in result_dict.items():
+        print(f"{class_name}: {metrics}")
     output_json_path = os.path.join(args.out_dir, 'evaluation_results.json')
     with open(output_json_path, 'w') as f:
         json.dump(result_dict, f, indent=4)

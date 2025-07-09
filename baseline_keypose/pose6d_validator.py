@@ -454,10 +454,12 @@ class Pose6DValidator:
 
     def get_result(self):
         """Return the computed metrics."""
-        res = self.print_metrics()
+        mean_res, class_res = self.print_metrics()
         # return results as 5 decimal place floats
-        res = {k: round(float(v), 5) for k, v in res.items()}
-        return res
+        mean_res = {k: round(float(v), 5) for k, v in mean_res.items()}
+        class_res = {k: {kk: round(float(vv), 5) for kk, vv in v.items()}
+                     for k, v in class_res.items() if k != 'mean'}
+        return mean_res, class_res
 
     def print_metrics(self):
         # indices
@@ -521,4 +523,22 @@ class Pose6DValidator:
             "Acc10°2cm": self.pose_acc[0, d10, s2],
             "Acc10°5cm": self.pose_acc[0, d10, s5]
         }
-        return mean_results
+        class_results = {
+            self.classes[cid]: {
+                "3DIoU@25": self.iou_ap[cid, i25] if i25 else 0.0,
+                "3DIoU@50": self.iou_ap[cid, i50] if i50 else 0.0,
+                "3DIoU@75": self.iou_ap[cid, i75] if i75 else 0.0,
+                "5°2cm": self.pose_ap[cid, d5, s2],
+                "5°5cm": self.pose_ap[cid, d5, s5],
+                "10°2cm": self.pose_ap[cid, d10, s2],
+                "10°5cm": self.pose_ap[cid, d10, s5],
+                "Acc@25": self.iou_acc[cid, i25] if i25 else 0.0,
+                "Acc@50": self.iou_acc[cid, i50] if i50 else 0.0,
+                "Acc@75": self.iou_acc[cid, i75] if i75 else 0.0,
+                "Acc5°2cm": self.pose_acc[cid, d5, s2],
+                "Acc5°5cm": self.pose_acc[cid, d5, s5],
+                "Acc10°2cm": self.pose_acc[cid, d10, s2],
+                "Acc10°5cm": self.pose_acc[cid, d10, s5]
+            } for cid in range(len(self.classes))
+        }
+        return mean_results, class_results

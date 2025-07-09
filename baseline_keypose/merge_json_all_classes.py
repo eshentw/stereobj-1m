@@ -21,13 +21,11 @@ if not os.path.exists(args.output_dir):
 
 if __name__ == "__main__":
 
-    # classes = ['blade_razor', 'hammer', 'microplate', 'needle_nose_pliers', 'pipette_0.5_10',
-    #         'pipette_100_1000', 'pipette_10_100', 'screwdriver', 'side_cutters',
-    #         'sterile_tip_rack_10', 'sterile_tip_rack_1000', 'sterile_tip_rack_200',
-    #         'tape_measure', 'tube_rack_1.5_2_ml', 'tube_rack_50_ml', 'wire_stripper', 'wrench']
-    classes = [
-        "hammer"
-    ]
+    classes = ['blade_razor', 'hammer', 'microplate', 'needle_nose_pliers', 'pipette_0.5_10',
+            'pipette_100_1000', 'pipette_10_100', 'screwdriver', 'side_cutters',
+            'sterile_tip_rack_10', 'sterile_tip_rack_1000', 'sterile_tip_rack_200',
+            'tape_measure', 'tube_rack_1.5_2_ml', 'tube_rack_50_ml', 'wire_stripper', 'wrench']
+
 
     combined_dict = {'split': args.split, 'pred': {}}
 

@@ -21,4 +21,5 @@ python evaluation/evaluate_pose6d.py \
     --object_data $object_data \
     --input_json $input_json \
     --gt_json $gt_json \
-    --root_dir $root_dir
+    --root_dir $root_dir \
+    --store_image
