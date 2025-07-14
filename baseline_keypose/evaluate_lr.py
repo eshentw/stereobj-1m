@@ -192,7 +192,6 @@ def eval_one_epoch(sess, ops):
         pred_kp_uv_val_l = pred_kp_uv_val_l[:, :16]
         pred_kp_uv_val_r = pred_kp_uv_val_r[:, :16]
 
-
         view = False
         if view:
             mean = np.array([0.485, 0.456, 0.406])
